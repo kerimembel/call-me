@@ -75,13 +75,18 @@ export class CallManager {
   private wss: WebSocketServer | null = null;
   private config: ServerConfig;
   private currentCallId = 0;
+  private apiHandler?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 
   constructor(config: ServerConfig) {
     this.config = config;
   }
 
+  setApiHandler(handler: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>) {
+    this.apiHandler = handler;
+  }
+
   startServer(): void {
-    this.httpServer = createServer((req, res) => {
+    this.httpServer = createServer(async (req, res) => {
       const url = new URL(req.url!, `http://${req.headers.host}`);
 
       if (url.pathname === '/twiml') {
@@ -93,6 +98,12 @@ export class CallManager {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', activeCalls: this.activeCalls.size }));
         return;
+      }
+
+      // Try custom API handler
+      if (this.apiHandler) {
+        const handled = await this.apiHandler(req, res);
+        if (handled) return;
       }
 
       res.writeHead(404);
