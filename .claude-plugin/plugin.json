@@ -1,6 +1,6 @@
 {
   "name": "callme",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Claude calls you on the phone when it needs your input or wants to report progress",
   "author": {
     "name": "ZeframLou",
@@ -12,8 +12,8 @@
   "skills": "./skills",
   "mcpServers": {
     "callme": {
-      "command": "bash",
-      "args": ["-c", "cd ${CLAUDE_PLUGIN_ROOT}/server && bun install --silent && bun run src/index.ts"],
+      "command": "bun",
+      "args": ["run", "--cwd", "${CLAUDE_PLUGIN_ROOT}/server", "start"],
       "env": {
         "CALLME_PHONE_ACCOUNT_SID": "${CALLME_PHONE_ACCOUNT_SID}",
         "CALLME_PHONE_AUTH_TOKEN": "${CALLME_PHONE_AUTH_TOKEN}",
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Evaluate if Claude should call the user to report progress or ask for what to do next. If yes, use the initiate_call tool."
+            "prompt": "SILENTLY evaluate if you should call the user. ONLY use initiate_call if you completed significant work and need to discuss next steps, or are genuinely blocked. Do NOT output any text - either call or do nothing."
           }
         ]
       }
