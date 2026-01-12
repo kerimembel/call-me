@@ -12,34 +12,125 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CallManager, loadServerConfig } from './phone-call.js';
 import { startNgrok, stopNgrok } from './ngrok.js';
+import { TelegramManager } from './telegram.js';
 
 async function main() {
   // Get port for HTTP server
   const port = parseInt(process.env.CALLME_PORT || '3333', 10);
 
-  // Start ngrok tunnel to get public URL
-  console.error('Starting ngrok tunnel...');
   let publicUrl: string;
-  try {
-    publicUrl = await startNgrok(port);
-    console.error(`ngrok tunnel: ${publicUrl}`);
-  } catch (error) {
-    console.error('Failed to start ngrok:', error instanceof Error ? error.message : error);
-    process.exit(1);
+
+  if (process.env.PUBLIC_URL) {
+    publicUrl = process.env.PUBLIC_URL;
+    console.error(`Using configured PUBLIC_URL: ${publicUrl}`);
+  } else {
+    // Start ngrok tunnel to get public URL
+    console.error('Starting ngrok tunnel...');
+    try {
+      publicUrl = await startNgrok(port);
+      console.error(`ngrok tunnel: ${publicUrl}`);
+    } catch (error) {
+      console.error('Failed to start ngrok:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
   }
 
-  // Load server config with the ngrok URL
+  // Load server config with the public URL
   let serverConfig;
   try {
     serverConfig = loadServerConfig(publicUrl);
   } catch (error) {
     console.error('Configuration error:', error instanceof Error ? error.message : error);
-    await stopNgrok();
+    if (!process.env.PUBLIC_URL) await stopNgrok();
     process.exit(1);
+  }
+
+  // Initialize Telegram Manager if configured
+  let telegramManager: TelegramManager | null = null;
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+      telegramManager = new TelegramManager({
+        botToken: process.env.TELEGRAM_BOT_TOKEN,
+        chatId: process.env.TELEGRAM_CHAT_ID,
+      });
+      console.error('Telegram bot initialized');
+    } catch (error) {
+      console.error('Failed to initialize Telegram bot:', error);
+    }
   }
 
   // Create call manager and start HTTP server for webhooks
   const callManager = new CallManager(serverConfig);
+
+  // Add API Handler for External Access
+  callManager.setApiHandler(async (req, res) => {
+    const url = new URL(req.url!, `http://${req.headers.host}`);
+
+    // Helper to read JSON body
+    const readBody = async () => {
+      return new Promise<any>((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+          try {
+            resolve(JSON.parse(body || '{}'));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+    };
+
+    if (req.method === 'POST') {
+      try {
+        if (url.pathname === '/api/call') {
+          const body = await readBody();
+          const { message } = body;
+          if (!message) throw new Error('Message required');
+
+          // Initiate call in background/promise (this might be long running if we wait for response)
+          // For API, we might want to wait for response.
+          const result = await callManager.initiateCall(message);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+          return true;
+        }
+
+        if (url.pathname === '/api/telegram/ask') {
+           if (!telegramManager) throw new Error('Telegram not configured');
+           const body = await readBody();
+           const { message, chatId } = body;
+           if (!message) throw new Error('Message required');
+
+           const response = await telegramManager.askQuestion(message, chatId);
+           res.writeHead(200, { 'Content-Type': 'application/json' });
+           res.end(JSON.stringify({ response }));
+           return true;
+        }
+
+        if (url.pathname === '/api/telegram/send') {
+           if (!telegramManager) throw new Error('Telegram not configured');
+           const body = await readBody();
+           const { message, chatId } = body;
+           if (!message) throw new Error('Message required');
+
+           await telegramManager.sendMessage(message, chatId);
+           res.writeHead(200, { 'Content-Type': 'application/json' });
+           res.end(JSON.stringify({ status: 'ok' }));
+           return true;
+        }
+      } catch (error) {
+        console.error('API Error:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Internal Server Error' }));
+        return true;
+      }
+    }
+
+    return false;
+  });
+
   callManager.startServer();
 
   // Create stdio MCP server
