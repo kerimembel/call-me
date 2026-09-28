@@ -1,0 +1,23 @@
+{
+  "repoPath": "/path/to/your/repo",
+  "plannerVendor": "claude",
+  "vendors": {
+    "claude": {
+      "planner": "claude-fable-5-1",
+      "worker": "claude-sonnet-5",
+      "permissionMode": "acceptEdits",
+      "enabled": true
+    },
+    "codex": {
+      "planner": null,
+      "worker": null,
+      "sandboxMode": "workspace-write",
+      "enabled": true
+    }
+  },
+  "quota": { "maxUtilizationPct": 85, "cooldownMinutes": 20 },
+  "maxRevisions": 1,
+  "maxTurnsPerAgent": 60,
+  "approvals": "telegram",
+  "bus": { "host": "127.0.0.1", "port": 4777 }
+}
